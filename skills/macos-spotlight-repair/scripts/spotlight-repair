@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# Check Spotlight's index on macOS and repair it, mildest step first.
+#
+# Usage: spotlight-repair [check | fix | restart | import [PATH...] | rebuild]
+#
+#   check    (default) Print each volume's indexing state and the apps
+#            Spotlight can't find. Read-only. Exits 1 when anything is wrong.
+#   fix      check; when the Data volume's state isn't "Indexing enabled",
+#            restart; then import the apps still missing; check again. Never
+#            rebuilds: that is a separate, slower step.
+#   restart  End the mds process by its PID (sudo); launchd starts a new one.
+#            `launchctl kickstart` is refused while SIP is on, so this is the
+#            way to restart Spotlight's server short of restarting the Mac.
+#   import   mdimport the given paths, or with none, the missing apps.
+#   rebuild  Erase and rebuild the Data volume's index (sudo). Search results
+#            are incomplete until it finishes, from minutes to hours.
+#
+# /Applications is on the Data volume (/System/Volumes/Data), so `mdutil -E /`
+# rebuilds only the read-only system volume and leaves a broken Data index as
+# it was.
+#
+# Environment, for tests:
+#   SPOTLIGHT_DATA_VOLUME  the Data volume (default /System/Volumes/Data)
+#   SPOTLIGHT_APP_DIRS     colon-separated app folders to check
+#                          (default /Applications:/Applications/Utilities:~/Applications)
+#   SPOTLIGHT_WAIT         seconds to wait for a new mds (default 30)
+set -euo pipefail
+
+data_volume=${SPOTLIGHT_DATA_VOLUME:-/System/Volumes/Data}
+[ -d "$data_volume" ] || data_volume=/
+app_dirs=${SPOTLIGHT_APP_DIRS:-/Applications:/Applications/Utilities:$HOME/Applications}
+wait_seconds=${SPOTLIGHT_WAIT:-30}
+
+# The state line `mdutil -s` prints for a volume, without its tabs.
+volume_state() {
+  mdutil -s "$1" 2>&1 | sed -n '2p' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+data_volume_ok() {
+  [ "$(volume_state "$data_volume")" = "Indexing enabled." ]
+}
+
+# App bundles directly in the app folders that Spotlight doesn't return.
+missing_apps() {
+  local dir found
+  local IFS=:
+  for dir in $app_dirs; do
+    [ -d "$dir" ] || continue
+    found=$(mdfind -onlyin "$dir" 'kMDItemContentType == "com.apple.application-bundle"' 2>/dev/null || true)
+    find "$dir" -mindepth 1 -maxdepth 1 -type d -name '*.app' | sort |
+      while IFS= read -r app; do
+        grep -Fqx -- "$app" <<<"$found" || printf '%s\n' "$app"
+      done
+  done
+}
+
+check() {
+  local volume missing status=0
+  for volume in / "$data_volume"; do
+    printf '%s: %s\n' "$volume" "$(volume_state "$volume")"
+  done
+  data_volume_ok || status=1
+  missing=$(missing_apps)
+  if [ -n "$missing" ]; then
+    printf 'Apps Spotlight can'\''t find:\n'
+    printf '  %s\n' "${missing//$'\n'/$'\n  '}"
+    status=1
+  else
+    printf 'Spotlight finds every app.\n'
+  fi
+  return $status
+}
+
+restart() {
+  local old new i
+  old=$(pgrep -x mds || true)
+  if [ -z "$old" ]; then
+    printf 'mds is not running; launchd starts it on demand.\n'
+    return 0
+  fi
+  printf 'Ending mds (PID %s); launchd starts a new one.\n' "$old"
+  # shellcheck disable=SC2086 # one PID per word
+  sudo kill $old
+  for ((i = 0; i < wait_seconds; i++)); do
+    new=$(pgrep -x mds || true)
+    if [ -n "$new" ] && [ "$new" != "$old" ]; then
+      printf 'mds is back (PID %s).\n' "$new"
+      return 0
+    fi
+    sleep 1
+  done
+  printf 'mds hasn'\''t come back after %ss; Spotlight starts it on the next search.\n' "$wait_seconds" >&2
+}
+
+import() {
+  local paths
+  if [ $# -gt 0 ]; then
+    paths=$(printf '%s\n' "$@")
+  else
+    paths=$(missing_apps)
+  fi
+  [ -n "$paths" ] || {
+    printf 'Nothing to import.\n'
+    return 0
+  }
+  while IFS= read -r path; do
+    printf 'Importing %s\n' "$path"
+    mdimport "$path"
+  done <<<"$paths"
+}
+
+rebuild() {
+  printf 'Rebuilding the index of %s; search results are incomplete until it finishes.\n' "$data_volume"
+  sudo mdutil -E "$data_volume"
+}
+
+fix() {
+  if check; then
+    return 0
+  fi
+  if ! data_volume_ok; then
+    restart
+    # Give the new mds a moment to load the volume's index.
+    sleep 3
+  fi
+  if data_volume_ok; then
+    import
+  fi
+  printf '\nAfter the repair:\n'
+  if check; then
+    return 0
+  fi
+  if ! data_volume_ok; then
+    printf "\nThe Data volume's index is still broken: run '%s rebuild', then restart the Mac if that fails too.\n" "$(basename "$0")"
+  else
+    printf "\nSome apps are still missing; Spotlight may still be importing them. Run '%s check' again in a minute.\n" "$(basename "$0")"
+  fi
+  return 1
+}
+
+case ${1:-check} in
+check | fix | restart | rebuild)
+  "${1:-check}"
+  ;;
+import)
+  shift
+  import "$@"
+  ;;
+-h | --help)
+  sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'
+  ;;
+*)
+  sed -n '4p' "$0" | sed 's/^# //' >&2
+  exit 2
+  ;;
+esac
