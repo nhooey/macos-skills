@@ -10,10 +10,11 @@ built by [`agent-skill-flake`](https://github.com/nhooey/agent-skill-flake).
 
 ## Skills
 
-| Skill                                                                  | What it does                                                                                                                                                                        |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`macos-spotlight-repair`](skills/macos-spotlight-repair/SKILL.md)     | Finds why Spotlight misses an app and repairs the Data volume's index mildest step first: restart `mds`, re-import, rebuild. Ships `scripts/spotlight-repair`.                      |
-| [`macos-unified-log-triage`](skills/macos-unified-log-triage/SKILL.md) | Reads the unified log, crash reports and launchd jobs for real problems: `/usr/bin/log`, not zsh's `log` builtin, empty results proved, counts by process, routine noise set aside. |
+| Skill                                                                  | What it does                                                                                                                                                                           |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`macos-disk-space`](skills/macos-disk-space/SKILL.md)                 | Finds what fills the disk and frees it biggest safe win first, with a reference per category: browsers, programming, Nix. Measures gains with `df`, since `du` overstates APFS clones. |
+| [`macos-spotlight-repair`](skills/macos-spotlight-repair/SKILL.md)     | Finds why Spotlight misses an app and repairs the Data volume's index mildest step first: restart `mds`, re-import, rebuild. Ships `scripts/spotlight-repair`.                         |
+| [`macos-unified-log-triage`](skills/macos-unified-log-triage/SKILL.md) | Reads the unified log, crash reports and launchd jobs for real problems: `/usr/bin/log`, not zsh's `log` builtin, empty results proved, counts by process, routine noise set aside.    |
 
 ## Install
 
@@ -36,6 +37,7 @@ nix run github:nhooey/macos-skills#uninstall
 Package outputs:
 
 - `agent-skills-nhooey-macos-all`: the aggregate of every skill (also `default`)
+- `agent-skill-nhooey-macos-disk-space`
 - `agent-skill-nhooey-macos-spotlight-repair`
 - `agent-skill-nhooey-macos-unified-log-triage`
 
