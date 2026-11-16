@@ -80,12 +80,19 @@ teardown() {
 }
 
 @test "test runs bats over tests/, or passes its arguments through" {
+  touch "$REPO/tests/x.bats"
   run "$SCRIPT" --root="$REPO" test
   [ "$status" -eq 0 ]
   run "$SCRIPT" --root "$REPO" test --filter fix tests/x.bats
   [ "$status" -eq 0 ]
   [ "$(cat "$STUB/log")" = "$REPO bats tests
 $REPO bats --filter fix tests/x.bats" ]
+}
+
+@test "test with only options, such as --filter, runs them over tests/" {
+  run "$SCRIPT" --root "$REPO" test --filter fix
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB/log")" = "$REPO bats --filter fix tests" ]
 }
 
 @test "the root defaults to \$PRJ_ROOT" {

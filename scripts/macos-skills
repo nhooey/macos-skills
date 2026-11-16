@@ -40,7 +40,7 @@ EOF
 command_usage() {
   case $1 in
     lint) echo "Usage: $prog lint" && echo "shellcheck skills/*/scripts/* and scripts/*." ;;
-    test) echo "Usage: $prog test [BATS_ARGS...]" && echo "Run bats over tests/, or over BATS_ARGS when given." ;;
+    test) echo "Usage: $prog test [BATS_ARGS...]" && echo "Run bats with BATS_ARGS, over tests/ unless they name a test file or directory." ;;
     all) echo "Usage: $prog all" && echo "Run lint, then test." ;;
   esac
 }
@@ -77,8 +77,17 @@ cmd_lint() {
   shellcheck "${targets[@]}"
 }
 
+# bats needs at least one test path, so when ARGS name no existing file or
+# directory (only options, such as `--filter fix`), they run over tests/.
 cmd_test() {
-  if [ "$#" -gt 0 ]; then bats "$@"; else bats tests; fi
+  local arg
+  for arg in "$@"; do
+    if [ -e "$arg" ]; then
+      bats "$@"
+      return
+    fi
+  done
+  bats "$@" tests
 }
 
 main() {
