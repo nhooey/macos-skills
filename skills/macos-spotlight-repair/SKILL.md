@@ -20,7 +20,9 @@ its own Spotlight index. So when Spotlight misses an app:
 
 ## The script
 
-`scripts/spotlight-repair`, in bash, with only the commands macOS ships:
+`scripts/spotlight-repair`, in bash, with only the commands macOS ships.
+Run it by its full path, `"${CLAUDE_SKILL_DIR}/scripts/spotlight-repair"`,
+and give the user that full path for the commands they run.
 
 | Command               | Does                                                                                    | Needs sudo    |
 | --------------------- | --------------------------------------------------------------------------------------- | ------------- |
@@ -38,9 +40,11 @@ It checks the app bundles directly inside `/Applications`,
 1. **Run `spotlight-repair check`** yourself: it only reads.
 2. **Ask the user to run `spotlight-repair fix`** in their own terminal.
    Restarting `mds` needs their `sudo` password and changes the whole
-   machine, so it is theirs to run. While System Integrity Protection is
-   on, launchctl refuses to restart `com.apple.metadata.mds` (error 150);
-   ending the process works, and launchd restarts it at once.
+   machine, so it is theirs to run (`shell-hygiene-no-machine-wide-changes`);
+   don't end `mds` yourself (`shell-hygiene-target-processes-by-pid`).
+   While System Integrity Protection is on, launchctl refuses to restart
+   `com.apple.metadata.mds` (error 150); ending the process works, and
+   launchd restarts it at once.
 3. **If `fix` says the index is still broken, ask them to run
    `spotlight-repair rebuild`.** Search results are incomplete until the
    rebuild finishes, which takes from minutes to hours on a full disk;
@@ -59,3 +63,13 @@ Spotlight, Search Privacy, or a bundle Spotlight won't index. `mdimport -t
 - `mdutil -s` reports "unknown indexing state", or `mdutil -i on` fails
   with -405.
 - Someone is about to restart a Mac only to fix Spotlight.
+
+## Related skills
+
+When one of these applies and it's in your skill listing, load it
+without asking. If it isn't in your listing, tell the user which skill is
+missing and ask whether to install it from the same collection this skill
+came from; don't apply it from memory.
+
+- `shell-hygiene-no-machine-wide-changes`: why `fix`, `restart` and `rebuild` are the user's to run, with their `sudo`.
+- `shell-hygiene-target-processes-by-pid`: signalling only a PID you have confirmed, never a process found by name.
