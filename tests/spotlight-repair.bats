@@ -92,13 +92,15 @@ teardown() {
 
 @test "fix points to rebuild when restarting mds doesn't help" {
   echo "Error: unknown indexing state." >"$STUB/data-state"
+  echo "$APPS/One.app" >"$STUB/indexed"
   kill() { echo "kill $*" >>"$STUB/log"; echo 200 >"$STUB/mds-pid"; }
   export -f kill
   run "$SCRIPT" fix
   [ "$status" -eq 1 ]
   [[ "$output" == *"The Data volume's index is still broken: run 'spotlight-repair rebuild'"* ]]
   [[ "$output" != *"Some apps are still missing"* ]]
-  ! grep -q mdimport "$STUB/log"
+  # A `! cmd` line fails a bats test only as its last line.
+  [ "$(grep -c mdimport "$STUB/log")" -eq 0 ]
   ! grep -q "mdutil -E" "$STUB/log"
 }
 
