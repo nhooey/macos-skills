@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 # spotlight-repair against stubs of the macOS commands it runs, exported as
 # shell functions, and app folders in a temporary directory. $STUB holds the
-# stubs' state: data-state (the Data volume's mdutil state line), indexed (the
-# paths mdfind returns), mds-pid, and log (what sudo, kill and mdimport did).
+# stubs' state: data-state (the Data volume's mdutil state line), indexed (every
+# path Spotlight has indexed; mdfind returns those under its -onlyin folder),
+# mds-pid, and log (what sudo, kill and mdimport did).
 
 setup() {
   SCRIPT="$BATS_TEST_DIRNAME/../skills/macos-spotlight-repair/scripts/spotlight-repair"
@@ -20,7 +21,13 @@ setup() {
     printf '%s:\n' "$2"
     if [ "$2" = "$STUB" ]; then printf '\t%s\n' "$(cat "$STUB/data-state")"; else printf '\tIndexing enabled. \n'; fi
   }
-  mdfind() { cat "$STUB/indexed"; }
+  # Only the app-bundle query is answered, and only with paths under -onlyin.
+  mdfind() {
+    [ "$1" = -onlyin ] && [ "$3" = 'kMDItemContentType == "com.apple.application-bundle"' ] || return 0
+    while IFS= read -r path; do
+      case $path in "$2"/*) printf '%s\n' "$path" ;; esac
+    done <"$STUB/indexed"
+  }
   pgrep() { cat "$STUB/mds-pid"; }
   sudo() { echo "sudo $*" >>"$STUB/log"; "$@"; }
   # A new mds loads the Data volume's index, as the real one did.
@@ -97,6 +104,18 @@ teardown() {
   run "$SCRIPT" import
   [ "$status" -eq 0 ]
   [[ "$output" == "Nothing to import." ]]
+}
+
+@test "check looks in every app folder, skips absent ones and ignores nested bundles" {
+  UTILS="$STUB/Utilities"
+  mkdir -p "$UTILS/Three.app" "$UTILS/Four.app" "$UTILS/Folder/Nested.app"
+  echo "$UTILS/Four.app" >>"$STUB/indexed"
+  export SPOTLIGHT_APP_DIRS="$APPS:$UTILS:$STUB/absent"
+  run "$SCRIPT" check
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"No such file"* ]]
+  [ "$(printf '%s\n' "$output" | sed -n '/^Apps Spotlight/,$p')" = "Apps Spotlight can't find:
+  $UTILS/Three.app" ]
 }
 
 @test "rebuild erases the Data volume's index, never the system volume's" {
