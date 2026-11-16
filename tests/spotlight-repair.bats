@@ -131,12 +131,66 @@ teardown() {
   $UTILS/Three.app" ]
 }
 
+@test "import with paths imports exactly those, not the missing apps" {
+  echo "$APPS/One.app" >"$STUB/indexed"
+  run "$SCRIPT" import /opt/A.app "/opt/With Space.app"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB/log")" = "mdimport /opt/A.app
+mdimport /opt/With Space.app" ]
+}
+
+@test "import with no paths imports each missing app" {
+  : >"$STUB/indexed"
+  run "$SCRIPT" import
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB/log")" = "mdimport $APPS/One.app
+mdimport $APPS/Two.app" ]
+}
+
+@test "restart does nothing when mds isn't running" {
+  : >"$STUB/mds-pid"
+  run "$SCRIPT" restart
+  [ "$status" -eq 0 ]
+  [ "$output" = "mds is not running; launchd starts it on demand." ]
+  [ ! -s "$STUB/log" ]
+}
+
+@test "restart gives up after SPOTLIGHT_WAIT seconds when mds doesn't come back" {
+  kill() { echo "kill $*" >>"$STUB/log"; }
+  sleep() { echo "sleep $*" >>"$STUB/log"; }
+  export -f kill sleep
+  run "$SCRIPT" restart
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mds hasn't come back after 3s; Spotlight starts it on the next search."* ]]
+  [[ "$output" != *"mds is back"* ]]
+  [ "$(grep -c '^sleep 1$' "$STUB/log")" -eq 3 ]
+}
+
 @test "rebuild erases the Data volume's index, never the system volume's" {
   mdutil() { echo "mdutil $*" >>"$STUB/log"; }
   export -f mdutil
   run "$SCRIPT" rebuild
   [ "$status" -eq 0 ]
   grep -qx "sudo mdutil -E $STUB" "$STUB/log"
+}
+
+@test "rebuild falls back to / when the Data volume doesn't exist" {
+  export SPOTLIGHT_DATA_VOLUME="$STUB/absent"
+  mdutil() { echo "mdutil $*" >>"$STUB/log"; }
+  export -f mdutil
+  run "$SCRIPT" rebuild
+  [ "$status" -eq 0 ]
+  grep -qx "sudo mdutil -E /" "$STUB/log"
+}
+
+@test "--help prints the header comment without its markers" {
+  run "$SCRIPT" --help
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "Check Spotlight's index on macOS and repair it, mildest step first." ]
+  [[ "$output" == *"Usage: spotlight-repair [check | fix | restart | import [PATH...] | rebuild]"* ]]
+  [[ "$output" == *"SPOTLIGHT_WAIT         seconds to wait for a new mds (default 30)" ]]
+  [[ "$output" != *"#"* ]]
+  [[ "$output" != *"set -euo"* ]]
 }
 
 @test "an unknown command prints the usage and exits 2" {
