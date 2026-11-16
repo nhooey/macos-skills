@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 # spotlight-repair against stubs of the macOS commands it runs, exported as
 # shell functions, and app folders in a temporary directory. $STUB holds the
-# stubs' state: data-state (the Data volume's mdutil state line), indexed (the
-# paths mdfind returns), mds-pid, and log (what sudo, kill and mdimport did).
+# stubs' state: data-state (the Data volume's mdutil state line), indexed (every
+# path Spotlight has indexed; mdfind returns those under its -onlyin folder),
+# mds-pid, and log (what sudo, kill and mdimport did).
 
 setup() {
   SCRIPT="$BATS_TEST_DIRNAME/../skills/macos-spotlight-repair/scripts/spotlight-repair"
@@ -20,7 +21,13 @@ setup() {
     printf '%s:\n' "$2"
     if [ "$2" = "$STUB" ]; then printf '\t%s\n' "$(cat "$STUB/data-state")"; else printf '\tIndexing enabled. \n'; fi
   }
-  mdfind() { cat "$STUB/indexed"; }
+  # Only the app-bundle query is answered, and only with paths under -onlyin.
+  mdfind() {
+    [ "$1" = -onlyin ] && [ "$3" = 'kMDItemContentType == "com.apple.application-bundle"' ] || return 0
+    while IFS= read -r path; do
+      case $path in "$2"/*) printf '%s\n' "$path" ;; esac
+    done <"$STUB/indexed"
+  }
   pgrep() { cat "$STUB/mds-pid"; }
   sudo() { echo "sudo $*" >>"$STUB/log"; "$@"; }
   # A new mds loads the Data volume's index, as the real one did.
@@ -89,8 +96,10 @@ teardown() {
   export -f kill
   run "$SCRIPT" fix
   [ "$status" -eq 1 ]
-  [[ "$output" == *"rebuild"* ]]
+  [[ "$output" == *"The Data volume's index is still broken: run 'spotlight-repair rebuild'"* ]]
+  [[ "$output" != *"Some apps are still missing"* ]]
   ! grep -q mdimport "$STUB/log"
+  ! grep -q "mdutil -E" "$STUB/log"
 }
 
 @test "import with no missing apps imports nothing" {
@@ -99,12 +108,89 @@ teardown() {
   [[ "$output" == "Nothing to import." ]]
 }
 
+@test "fix says apps may still be importing when the volume is fine but an app stays missing" {
+  echo "$APPS/One.app" >"$STUB/indexed"
+  mdimport() { echo "mdimport $*" >>"$STUB/log"; }
+  export -f mdimport
+  run "$SCRIPT" fix
+  [ "$status" -eq 1 ]
+  grep -qx "mdimport $APPS/Two.app" "$STUB/log"
+  [[ "$output" == *"Some apps are still missing; Spotlight may still be importing them. Run 'spotlight-repair check' again"* ]]
+  [[ "$output" != *"still broken"* ]]
+}
+
+@test "check looks in every app folder, skips absent ones and ignores nested bundles" {
+  UTILS="$STUB/Utilities"
+  mkdir -p "$UTILS/Three.app" "$UTILS/Four.app" "$UTILS/Folder/Nested.app"
+  echo "$UTILS/Four.app" >>"$STUB/indexed"
+  export SPOTLIGHT_APP_DIRS="$APPS:$UTILS:$STUB/absent"
+  run "$SCRIPT" check
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"No such file"* ]]
+  [ "$(printf '%s\n' "$output" | sed -n '/^Apps Spotlight/,$p')" = "Apps Spotlight can't find:
+  $UTILS/Three.app" ]
+}
+
+@test "import with paths imports exactly those, not the missing apps" {
+  echo "$APPS/One.app" >"$STUB/indexed"
+  run "$SCRIPT" import /opt/A.app "/opt/With Space.app"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB/log")" = "mdimport /opt/A.app
+mdimport /opt/With Space.app" ]
+}
+
+@test "import with no paths imports each missing app" {
+  : >"$STUB/indexed"
+  run "$SCRIPT" import
+  [ "$status" -eq 0 ]
+  [ "$(cat "$STUB/log")" = "mdimport $APPS/One.app
+mdimport $APPS/Two.app" ]
+}
+
+@test "restart does nothing when mds isn't running" {
+  : >"$STUB/mds-pid"
+  run "$SCRIPT" restart
+  [ "$status" -eq 0 ]
+  [ "$output" = "mds is not running; launchd starts it on demand." ]
+  [ ! -s "$STUB/log" ]
+}
+
+@test "restart gives up after SPOTLIGHT_WAIT seconds when mds doesn't come back" {
+  kill() { echo "kill $*" >>"$STUB/log"; }
+  sleep() { echo "sleep $*" >>"$STUB/log"; }
+  export -f kill sleep
+  run "$SCRIPT" restart
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mds hasn't come back after 3s; Spotlight starts it on the next search."* ]]
+  [[ "$output" != *"mds is back"* ]]
+  [ "$(grep -c '^sleep 1$' "$STUB/log")" -eq 3 ]
+}
+
 @test "rebuild erases the Data volume's index, never the system volume's" {
   mdutil() { echo "mdutil $*" >>"$STUB/log"; }
   export -f mdutil
   run "$SCRIPT" rebuild
   [ "$status" -eq 0 ]
   grep -qx "sudo mdutil -E $STUB" "$STUB/log"
+}
+
+@test "rebuild falls back to / when the Data volume doesn't exist" {
+  export SPOTLIGHT_DATA_VOLUME="$STUB/absent"
+  mdutil() { echo "mdutil $*" >>"$STUB/log"; }
+  export -f mdutil
+  run "$SCRIPT" rebuild
+  [ "$status" -eq 0 ]
+  grep -qx "sudo mdutil -E /" "$STUB/log"
+}
+
+@test "--help prints the header comment without its markers" {
+  run "$SCRIPT" --help
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "Check Spotlight's index on macOS and repair it, mildest step first." ]
+  [[ "$output" == *"Usage: spotlight-repair [check | fix | restart | import [PATH...] | rebuild]"* ]]
+  [[ "$output" == *"SPOTLIGHT_WAIT         seconds to wait for a new mds (default 30)" ]]
+  [[ "$output" != *"#"* ]]
+  [[ "$output" != *"set -euo"* ]]
 }
 
 @test "an unknown command prints the usage and exits 2" {

@@ -68,28 +68,48 @@
       };
       perSystem =
         { pkgs, system, ... }:
+        let
+          # This repository's lint and test commands (scripts/macos-skills),
+          # with shellcheck and bats on its PATH. The dev shell's menu and
+          # `checks.scripts` both run it, so they lint and test the same way.
+          macos-skills = pkgs.writeShellApplication {
+            name = "macos-skills";
+            runtimeInputs = [
+              pkgs.bats
+              pkgs.git
+              pkgs.shellcheck
+            ];
+            text = builtins.readFile ./scripts/macos-skills;
+          };
+        in
         {
           packages = base.packages.${system};
 
           apps = base.apps.${system};
 
-          # The skills' scripts: shellcheck, and the bats suites under tests/,
-          # which stub the macOS commands so they run on any system.
+          devshells.default.commands = [
+            {
+              category = "dev";
+              package = macos-skills;
+              help = "Lint the skills' scripts with shellcheck and run the bats suites (lint | test | all)";
+            }
+          ];
+
+          # The skills' scripts and scripts/: shellcheck, and the bats suites
+          # under tests/, which stub the macOS commands so they run on any
+          # system.
           checks.scripts =
             pkgs.runCommand "macos-skills-scripts"
               {
-                nativeBuildInputs = [
-                  pkgs.bats
-                  pkgs.shellcheck
-                ];
+                nativeBuildInputs = [ macos-skills ];
               }
               ''
                 cp -r ${./skills} skills
+                cp -r ${./scripts} scripts
                 cp -r ${./tests} tests
                 chmod -R u+w .
-                patchShebangs skills tests
-                shellcheck skills/*/scripts/*
-                bats tests
+                patchShebangs skills scripts tests
+                macos-skills --root . all
                 touch $out
               '';
 

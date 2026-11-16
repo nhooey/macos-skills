@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# This repository's lint and test commands, as one tool.
+#
+# Usage: macos-skills [--root DIR] <command> [ARGS...]
+#
+#   lint           shellcheck every skill's scripts and this repository's own
+#                  scripts under scripts/.
+#   test [ARGS]    Run the bats suites under tests/. ARGS pass through to bats,
+#                  so `macos-skills test tests/spotlight-repair.bats` runs one
+#                  suite and `macos-skills test --filter fix` a few tests.
+#   all            lint, then test.
+#
+#   --root DIR     The repository to work on. Defaults to $PRJ_ROOT (set in
+#                  the dev shell), else the enclosing git work tree, else the
+#                  current directory.
+#   -h, --help     This help; `macos-skills <command> --help` for one command.
+#
+# Exits 0 when every step passes, 1 when a lint or test fails, 2 on a usage
+# error.
+set -euo pipefail
+
+prog=macos-skills
+
+usage() {
+  cat <<EOF
+Usage: $prog [--root DIR] <command> [ARGS...]
+
+Commands:
+  lint           shellcheck the skills' scripts and scripts/
+  test [ARGS]    run the bats suites under tests/ (ARGS pass through to bats)
+  all            lint, then test
+
+Options:
+  --root DIR     repository root (default: \$PRJ_ROOT, else the git work tree,
+                 else the current directory)
+  -h, --help     show this help; '$prog <command> --help' for one command
+EOF
+}
+
+command_usage() {
+  case $1 in
+    lint) echo "Usage: $prog lint" && echo "shellcheck skills/*/scripts/* and scripts/*." ;;
+    test) echo "Usage: $prog test [BATS_ARGS...]" && echo "Run bats over tests/, or over BATS_ARGS when given." ;;
+    all) echo "Usage: $prog all" && echo "Run lint, then test." ;;
+  esac
+}
+
+die_usage() {
+  echo "$prog: $1" >&2
+  echo "Run '$prog --help' for usage." >&2
+  exit 2
+}
+
+# The repository root: --root, else $PRJ_ROOT, else the git work tree, else
+# the current directory.
+resolve_root() {
+  if [ -n "${1:-}" ]; then
+    printf '%s\n' "$1"
+  elif [ -n "${PRJ_ROOT:-}" ]; then
+    printf '%s\n' "$PRJ_ROOT"
+  elif git rev-parse --show-toplevel 2>/dev/null; then
+    :
+  else
+    pwd
+  fi
+}
+
+cmd_lint() {
+  local f targets=()
+  for f in skills/*/scripts/* scripts/*; do
+    [ -f "$f" ] && targets+=("$f")
+  done
+  [ "${#targets[@]}" -gt 0 ] || {
+    echo "$prog: no scripts to lint under $PWD" >&2
+    return 1
+  }
+  shellcheck "${targets[@]}"
+}
+
+cmd_test() {
+  if [ "$#" -gt 0 ]; then bats "$@"; else bats tests; fi
+}
+
+main() {
+  local root=""
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      -h | --help)
+        usage
+        return 0
+        ;;
+      --root)
+        [ "$#" -ge 2 ] || die_usage "--root needs a directory"
+        root=$2
+        shift 2
+        ;;
+      --root=*)
+        root=${1#--root=}
+        shift
+        ;;
+      -*) die_usage "unknown option: $1" ;;
+      *) break ;;
+    esac
+  done
+
+  [ "$#" -gt 0 ] || die_usage "no command given"
+  local cmd=$1
+  shift
+  case $cmd in
+    lint | test | all) ;;
+    *) die_usage "unknown command: $cmd" ;;
+  esac
+
+  if [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then
+    command_usage "$cmd"
+    return 0
+  fi
+  if [ "$cmd" != test ] && [ "$#" -gt 0 ]; then
+    die_usage "$cmd takes no arguments"
+  fi
+
+  root=$(resolve_root "$root")
+  [ -d "$root" ] || die_usage "not a directory: $root"
+  cd "$root"
+
+  case $cmd in
+    lint) cmd_lint ;;
+    test) cmd_test "$@" ;;
+    all) cmd_lint && cmd_test ;;
+  esac
+}
+
+main "$@"
