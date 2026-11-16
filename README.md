@@ -50,7 +50,9 @@ Package outputs:
 ## Development
 
 ```bash
-nix develop      # enter the dev shell; run `menu` to list commands
-nix fmt          # nixfmt over *.nix, prettier over *.md / *.yaml
-nix flake check  # the treefmt check, plus shellcheck and the bats suites in tests/
+nix develop        # enter the dev shell; run `menu` to list commands
+macos-skills lint  # in the dev shell: shellcheck the skills' scripts and scripts/
+macos-skills test  # in the dev shell: the bats suites in tests/ (args pass to bats)
+nix fmt            # nixfmt over *.nix, prettier over *.md / *.yaml
+nix flake check    # the treefmt check, plus `macos-skills all`
 ```
