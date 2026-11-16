@@ -31,7 +31,15 @@ nix run github:nhooey/macos-skills#reconcile
 
 # Remove the skills this flake installed
 nix run github:nhooey/macos-skills#uninstall
+
+# Remove only this flake's broken (garbage-collected) skill entries
+nix run github:nhooey/macos-skills#reap
+
+# Remove every skill entry this flake owns, live or broken
+nix run github:nhooey/macos-skills#purge
 ```
+
+`nix run github:nhooey/macos-skills` with no app name runs `preview`.
 
 Package outputs:
 
