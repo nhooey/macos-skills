@@ -96,14 +96,27 @@ teardown() {
   export -f kill
   run "$SCRIPT" fix
   [ "$status" -eq 1 ]
-  [[ "$output" == *"rebuild"* ]]
+  [[ "$output" == *"The Data volume's index is still broken: run 'spotlight-repair rebuild'"* ]]
+  [[ "$output" != *"Some apps are still missing"* ]]
   ! grep -q mdimport "$STUB/log"
+  ! grep -q "mdutil -E" "$STUB/log"
 }
 
 @test "import with no missing apps imports nothing" {
   run "$SCRIPT" import
   [ "$status" -eq 0 ]
   [[ "$output" == "Nothing to import." ]]
+}
+
+@test "fix says apps may still be importing when the volume is fine but an app stays missing" {
+  echo "$APPS/One.app" >"$STUB/indexed"
+  mdimport() { echo "mdimport $*" >>"$STUB/log"; }
+  export -f mdimport
+  run "$SCRIPT" fix
+  [ "$status" -eq 1 ]
+  grep -qx "mdimport $APPS/Two.app" "$STUB/log"
+  [[ "$output" == *"Some apps are still missing; Spotlight may still be importing them. Run 'spotlight-repair check' again"* ]]
+  [[ "$output" != *"still broken"* ]]
 }
 
 @test "check looks in every app folder, skips absent ones and ignores nested bundles" {
