@@ -70,14 +70,17 @@
         { pkgs, system, ... }:
         let
           # This repository's lint and test commands (scripts/macos-skills),
-          # with shellcheck and bats on its PATH. The dev shell's menu and
-          # `checks.scripts` both run it, so they lint and test the same way.
+          # with shellcheck, bats and yq (which the description tests parse
+          # the skills' frontmatter with) on its PATH. The dev shell's menu
+          # and `checks.scripts` both run it, so they lint and test the same
+          # way.
           macos-skills = pkgs.writeShellApplication {
             name = "macos-skills";
             runtimeInputs = [
               pkgs.bats
               pkgs.git
               pkgs.shellcheck
+              pkgs.yq-go
             ];
             text = builtins.readFile ./scripts/macos-skills;
           };
