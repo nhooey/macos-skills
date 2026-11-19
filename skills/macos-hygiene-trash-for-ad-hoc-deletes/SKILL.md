@@ -1,6 +1,6 @@
 ---
 name: macos-hygiene-trash-for-ad-hoc-deletes
-description: On macOS, move the files and folders you delete yourself to the Trash with `/usr/bin/trash --verbose --stopOnError <paths>`, so the user can still recover them, instead of `rm` or a hand-made move into `~/.Trash`. Covers listing and naming each path first, the two cases where `rm` is right (space that must be reclaimed now, and throwaway paths you created), and keeping repository code portable, never detecting macOS to call `trash`. Use it on macOS whenever you are about to delete files or folders yourself, as cleanup during a session, outside repository code.
+description: Load on macOS before deleting files or folders yourself during a session, or cleaning up after a task, outside repository code. Moves them to the Trash with `/usr/bin/trash`, not `rm`, so the user can recover them. This skill picks the command; `shell-hygiene-delete-named-paths` says what may be deleted, so load both.
 ---
 
 # Send ad-hoc deletes to the Trash on macOS
